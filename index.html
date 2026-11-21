@@ -314,6 +314,17 @@
     .topbar h1{font-size:25px;}
     .privacy-badge{margin-left:0;}
     .stats-list{max-height:none;}
+    /* 手机版：把导出提到右侧栏最前面，紧跟图纸下方，
+       不用再拉过用豆清单 / 库存 / 缺豆清单到最底才能导出。桌面版顺序不变。 */
+    .panel.stats{display:flex; flex-direction:column;}
+    .panel.stats .export-section{order:1; margin-bottom:2px;}
+    .panel.stats > .divider-export{order:2;}
+    .panel.stats .stats-section{order:3;}
+    .panel.stats .flow-arrow{order:4;}
+    .panel.stats > .divider-stats{order:5;}
+    .panel.stats .inventory-section{order:6;}
+    .panel.stats > .divider-inventory{order:7;}
+    .panel.stats .shortage-section{order:8; margin-bottom:2px;}
   }
 </style>
 </head>
@@ -474,7 +485,7 @@
 
   <!-- 右：统计 + 导出 -->
   <aside class="panel stats">
-    <section>
+    <section class="stats-section">
       <h2><span class="step">4</span>用豆清单</h2>
       <div class="stat-cards">
         <div class="stat-card"><div class="n" id="statTotal">–</div><div class="l">总颗数</div></div>
@@ -489,9 +500,9 @@
     </section>
 
     <p class="flow-arrow">用豆清单 − 我的库存 ＝ 缺豆清单 ↓</p>
-    <hr class="divider">
+    <hr class="divider divider-stats">
 
-    <section>
+    <section class="inventory-section">
       <h2><span class="step">5</span>我的库存</h2>
       <div class="inv-summary">
         <div class="stat-card"><div class="n" id="invKinds">0</div><div class="l">已录入色号（当前品牌）</div></div>
@@ -513,9 +524,9 @@
       <div class="inv-list" id="invList"><div class="empty-list">还没有录入库存。在上方选色号填颗数，或导入 CSV。</div></div>
     </section>
 
-    <hr class="divider">
+    <hr class="divider divider-inventory">
 
-    <section>
+    <section class="shortage-section">
       <h2><span class="step">6</span>缺豆清单</h2>
       <div class="shortage-summary" id="shortageSummary">先生成一张图纸，这里会自动算出：用豆清单减掉库存，还缺哪些色号、各缺多少颗。</div>
       <div class="shortage-list" id="shortageList"></div>
@@ -526,9 +537,9 @@
       <p class="hint">采购清单带品牌 + 色号 + 缺口颗数，复制后可直接粘贴到微信、备忘录或店铺下单备注里发给卖家。库存够用的颜色不会出现在采购清单里。</p>
     </section>
 
-    <hr class="divider">
+    <hr class="divider divider-export">
 
-    <section>
+    <section class="export-section">
       <h2><span class="step">7</span>导出（无水印）</h2>
       <div class="export-grid">
         <button class="btn teal block" id="expPng" type="button" disabled>PNG 图纸（带色号 / 坐标）</button>
