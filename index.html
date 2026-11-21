@@ -283,6 +283,29 @@
   }
   .toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
 
+  /* ---------- iPhone 保存到相册：大图预览（长按保存） ---------- */
+  .save-overlay{
+    position:fixed; inset:0; z-index:80; display:none;
+    align-items:center; justify-content:center; padding:16px;
+    background:rgba(30,24,16,.68);
+  }
+  .save-overlay.show{display:flex;}
+  .save-card{
+    background:var(--card); color:var(--ink); border:2px solid var(--line); border-radius:18px;
+    box-shadow:0 10px 36px rgba(0,0,0,.35); width:100%; max-width:540px;
+    max-height:92vh; overflow-y:auto; padding:18px; text-align:center;
+  }
+  .save-card h3{margin:0 0 6px; font-size:19px; font-weight:800;}
+  .save-card .save-tip{font-size:14px; line-height:1.65; color:var(--ink); margin:0 0 12px;}
+  .save-card .save-tip b{color:var(--accent-dark);}
+  .save-card img{
+    display:block; width:100%; height:auto; border-radius:10px;
+    border:1.5px solid var(--line); background:#fff; margin:0 auto;
+    -webkit-touch-callout:default;
+  }
+  .save-card .save-name{font-size:12.5px; color:var(--muted); margin:10px 0 12px; word-break:break-all;}
+  .save-card .btn{width:100%;}
+
   @media (max-width:1080px){
     .layout{grid-template-columns:1fr; padding:10px 12px 24px;}
     .panel{position:static;}
@@ -515,11 +538,22 @@
         <button class="btn block" id="expHtml" type="button" disabled>单文件 HTML（离线打开）</button>
       </div>
       <p class="hint">清单总数 = 图纸上非空格子数，照着买不会多也不会少。</p>
+      <p class="hint"><b>iPhone 保存图片：</b>点 PNG 图纸 / PNG 清单后会弹出系统分享，选「存储图像」就会存到相册；如果没有弹出分享，就在预览图上长按选「添加到照片」。直接下载的图片只会进「文件」App，不会进相册。</p>
     </section>
   </aside>
 </main>
 
 <p class="foot-note">色板数据来源：Perler（117 色）/ Hama（89 色）/ Artkal S（176 色）/ Artkal Mini（221 色）/ MARD 221·291 / COCO 291 来自 Bitbead 开放数据集（github.com/pomodiary/bitbead.app · data/palettes.json，CC BY 4.0），hex 为屏幕近似值；漫漫 / 盼盼 / 咪小窝暂为通用 168 色色板。不同批次的豆子可能有轻微色差，买豆前请对着实物色卡再核对一眼。本页不加载任何第三方脚本，PDF 也在本机生成。</p>
+<div class="save-overlay" id="saveOverlay" role="dialog" aria-modal="true" aria-label="保存图片到相册">
+  <div class="save-card">
+    <h3>保存到相册</h3>
+    <p class="save-tip">在下面这张图上<b>长按</b>，选「<b>添加到照片</b> / 存储到相册」，图片就会进相册。<br>不要点普通下载 —— 下载只会存到「文件」App 里。</p>
+    <img id="saveImg" alt="要保存到相册的导出图片">
+    <div class="save-name" id="saveName"></div>
+    <button class="btn teal" id="saveShareBtn" type="button" style="margin-bottom:9px;">用系统分享保存（选「存储图像」）</button>
+    <button class="btn block" id="saveCloseBtn" type="button">关闭</button>
+  </div>
+</div>
 <div class="toast" id="toast" role="status"></div>
 
 <script>
@@ -1416,13 +1450,89 @@ function downloadBlob(blob, name) {
   a.click();
   setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 800);
 }
+
+/* iPhone / iPad 判断：含 iPadOS 13+ 伪装成 Mac 的情况 */
+function isIOSDevice() {
+  var ua = navigator.userAgent || '';
+  if (/iPad|iPhone|iPod/.test(ua)) return true;
+  return navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+}
+
+/* 当前待保存图片（给预览弹窗里的「系统分享」按钮复用） */
+var pendingSave = null; /* {blob, name, url} */
+
+function closeSavePreview() {
+  $('saveOverlay').classList.remove('show');
+  if (pendingSave && pendingSave.url) URL.revokeObjectURL(pendingSave.url);
+  pendingSave = null;
+}
+
+/* iOS 兜底：把图片大图展示出来，用户长按即可「添加到照片」进相册。
+   普通 <a download> 在 iOS Safari 只会把图存进「文件」App，不进相册。 */
+function openSavePreview(blob, name) {
+  if (pendingSave && pendingSave.url) URL.revokeObjectURL(pendingSave.url);
+  var url = URL.createObjectURL(blob);
+  pendingSave = { blob: blob, name: name, url: url };
+  $('saveImg').src = url;
+  $('saveName').textContent = name;
+  var canShareFiles = false;
+  try {
+    canShareFiles = !!(navigator.canShare && navigator.share &&
+      navigator.canShare({ files: [new File([blob], name, { type: blob.type || 'image/png' })] }));
+  } catch (e) { canShareFiles = false; }
+  $('saveShareBtn').style.display = canShareFiles ? '' : 'none';
+  $('saveOverlay').classList.add('show');
+  toast('长按图片，选「添加到照片」保存到相册');
+}
+
+function shareImageFile(blob, name) {
+  try {
+    var file = new File([blob], name, { type: blob.type || 'image/png' });
+    if (!navigator.canShare || !navigator.share || !navigator.canShare({ files: [file] })) {
+      return Promise.reject(new Error('share-files-unsupported'));
+    }
+    return navigator.share({ files: [file], title: name });
+  } catch (e) { return Promise.reject(e); }
+}
+
+/* 图片导出统一入口：
+   - iPhone/iPad：优先系统分享（选「存储图像」直接进相册），
+     分享不可用或失败时改走大图预览长按保存，绝不走普通下载；
+   - 其他设备：保持原来的普通下载不变。 */
+function saveImageBlob(blob, name, doneMsg) {
+  if (!blob) { toast('导出失败，再试一次'); return; }
+  if (!isIOSDevice()) {
+    downloadBlob(blob, name);
+    if (doneMsg) toast(doneMsg);
+    return;
+  }
+  shareImageFile(blob, name).then(function () {
+    toast('在分享菜单里选「存储图像」，就会存到相册');
+  }).catch(function (err) {
+    if (err && err.name === 'AbortError') return; /* 用户自己取消了分享 */
+    openSavePreview(blob, name);
+  });
+}
 function fileBase() { return '拼豆图纸-' + brandLabel() + '-' + S.cols + 'x' + S.rows; }
 
 function initExports() {
+  $('saveCloseBtn').addEventListener('click', closeSavePreview);
+  $('saveOverlay').addEventListener('click', function (e) { if (e.target === $('saveOverlay')) closeSavePreview(); });
+  $('saveShareBtn').addEventListener('click', function () {
+    if (!pendingSave) return;
+    var p = pendingSave;
+    shareImageFile(p.blob, p.name).then(function () {
+      closeSavePreview();
+      toast('在分享菜单里选「存储图像」，就会存到相册');
+    }).catch(function (err) {
+      if (err && err.name === 'AbortError') return;
+      toast('这个浏览器不支持系统分享，请长按图片保存到相册');
+    });
+  });
+
   $('expPng').addEventListener('click', function () {
     renderChart(chartCellForExport()).toBlob(function (b) {
-      downloadBlob(b, fileBase() + '.png');
-      toast('PNG 图纸已导出');
+      saveImageBlob(b, fileBase() + '.png', 'PNG 图纸已导出');
     }, 'image/png');
   });
 
@@ -1443,8 +1553,7 @@ function initExports() {
 
   $('expListPng').addEventListener('click', function () {
     renderListCanvas().toBlob(function (b) {
-      downloadBlob(b, fileBase() + '-用豆清单.png');
-      toast('PNG 用豆清单已导出');
+      saveImageBlob(b, fileBase() + '-用豆清单.png', 'PNG 用豆清单已导出');
     }, 'image/png');
   });
 
