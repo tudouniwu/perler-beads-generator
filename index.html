@@ -86,8 +86,8 @@
   .orig-wrap{margin-top:12px; display:none;}
   .orig-wrap.show{display:block;}
   .orig-wrap img{
-    width:100%; max-height:190px; object-fit:contain; border-radius:10px;
-    border:1.5px solid var(--line);
+    display:block; width:100%; height:auto; max-height:300px; object-fit:contain; object-position:center; border-radius:10px;
+    border:1.5px solid var(--line); margin:0 auto;
     background:repeating-conic-gradient(rgba(0,0,0,.05) 0% 25%, transparent 0% 50%) 0 0/18px 18px;
   }
   .orig-meta{font-size:12.5px;color:var(--muted);margin-top:5px;word-break:break-all;}
@@ -176,8 +176,14 @@
   }
   .tabs button.on{background:var(--card); color:var(--ink); box-shadow:var(--shadow);}
   .hover-info{font-size:13.5px;color:var(--muted);min-height:20px;}
-  .zoom-box{display:flex;align-items:center;gap:8px;margin-left:auto;font-size:13px;color:var(--muted);}
+  .zoom-box{display:flex;align-items:center;gap:8px;margin-left:auto;font-size:13px;color:var(--muted);flex-wrap:wrap;}
   .zoom-box input[type=range]{width:110px;flex:none;}
+  .zoom-pct{font-weight:700;color:var(--ink);min-width:40px;text-align:right;font-variant-numeric:tabular-nums;}
+  .fit-btn{
+    min-height:36px; padding:6px 13px; border-radius:9px; border:2px solid var(--teal);
+    background:var(--teal); color:#fff; font-size:13.5px; font-weight:700; white-space:nowrap;
+  }
+  .fit-btn:active{transform:translateY(1px);}
   .canvas-scroll{
     overflow:auto; border-radius:12px; border:1.5px solid var(--line);
     background:repeating-conic-gradient(rgba(0,0,0,.035) 0% 25%, transparent 0% 50%) 0 0/22px 22px;
@@ -421,9 +427,12 @@
         <button id="tabBead" type="button" role="tab">成品效果</button>
       </div>
       <span class="hover-info" id="hoverInfo">把鼠标 / 手指放到格子上看色号</span>
-      <label class="zoom-box">缩放
-        <input type="range" id="zoomRange" min="40" max="280" step="5" value="100" aria-label="缩放">
-      </label>
+      <div class="zoom-box">
+        <button class="fit-btn" id="fitBtn" type="button">全图预览</button>
+        <label for="zoomRange">缩放</label>
+        <input type="range" id="zoomRange" min="10" max="280" step="5" value="100" aria-label="缩放">
+        <span class="zoom-pct" id="zoomPct">100%</span>
+      </div>
     </div>
     <div class="canvas-scroll" id="canvasScroll">
       <div class="empty-state" id="emptyState">
@@ -534,6 +543,7 @@ var S = {
   view: 'pattern',
   beadMm: 5,
   zoom: 1,
+  fitMode: true,
   cellPx: 20,
   generating: false
 };
@@ -886,6 +896,7 @@ function generate() {
   }, imgData).then(function (res) {
     S.grid = res.grid; S.cols = cols; S.rows = rows;
     S.counts = res.counts;
+    S.fitMode = true; /* 新生成一张图，默认回到全图预览 */
     S.undoStack = [];
     $('undoBtn').disabled = true;
     var ms = Math.max(1, Math.round(performance.now() - t0));
@@ -931,7 +942,43 @@ function fitCanvases() {
   [$('patternCanvas'), $('beadCanvas'), $('hoverCanvas')].forEach(function (cv) {
     cv.width = w; cv.height = h;
   });
+  /* 默认全图预览：生成后自动算刚好塞进预览框的比例，不再默认 100% 溢出要滚动。
+     用户手动放大改色时（fitMode=false）保留他的缩放，不打回全图。 */
+  if (S.fitMode) {
+    fitZoomToView();
+    /* 布局（吸顶/分栏）可能在下一帧才稳定，再校准一次 */
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(function () { if (S.fitMode && S.grid) fitZoomToView(); });
+    }
+  } else {
+    applyZoom();
+  }
+}
+function computeFitZoom() {
+  var sc = $('canvasScroll');
+  var cv = $('patternCanvas');
+  if (!sc || !cv || !cv.width || !cv.height) return 1;
+  var availW = sc.clientWidth - 32; /* 减去 padding 14*2 + 边框/滚动条余量 */
+  var maxH = parseFloat(getComputedStyle(sc).maxHeight);
+  var availH = (isFinite(maxH) && maxH > 0 ? maxH : sc.clientHeight) - 32;
+  if (availW <= 40) availW = cv.width; /* 尚未布局时不缩 */
+  if (availH <= 40) availH = cv.height;
+  var z = Math.min(availW / cv.width, availH / cv.height);
+  return clamp(z, 0.1, 1.6);
+}
+function fitZoomToView() {
+  if (!S.grid && !$('patternCanvas').width) { applyZoom(); return; }
+  S.zoom = computeFitZoom();
+  S.fitMode = true;
+  var rng = $('zoomRange');
+  if (rng) rng.value = clamp(Math.round(S.zoom * 100), Number(rng.min) || 10, Number(rng.max) || 280);
   applyZoom();
+  var sc = $('canvasScroll');
+  if (sc) { sc.scrollLeft = 0; sc.scrollTop = 0; }
+}
+function updateZoomLabel() {
+  var el = $('zoomPct');
+  if (el) el.textContent = Math.round(S.zoom * 100) + '%';
 }
 function applyZoom() {
   var z = S.zoom;
@@ -939,6 +986,7 @@ function applyZoom() {
     cv.style.width = (cv.width * z) + 'px';
     cv.style.height = (cv.height * z) + 'px';
   });
+  updateZoomLabel();
 }
 
 function drawPattern() {
@@ -1215,8 +1263,16 @@ function initCanvasEvents() {
   $('tabPattern').addEventListener('click', function () { setView('pattern'); });
   $('tabBead').addEventListener('click', function () { setView('bead'); });
   $('zoomRange').addEventListener('input', function () {
+    S.fitMode = false;
     S.zoom = Number($('zoomRange').value) / 100;
     applyZoom();
+  });
+  var fitBtn = $('fitBtn');
+  if (fitBtn) fitBtn.addEventListener('click', function () { if (S.grid) fitZoomToView(); else toast('先生成一张图纸，再看全图'); });
+  var resizeTimer = null;
+  window.addEventListener('resize', function () {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function () { if (S.grid && S.fitMode) fitZoomToView(); }, 160);
   });
 }
 function setView(v) {
